@@ -94,7 +94,6 @@ start_link(Host, Opts) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Host, Opts]) ->
-    ibrowse:start(),
     Endpoints = gen_mod:get_opt(endpoints, Opts, []),
     lists:foreach(fun(Uri) ->
                           get_configuration(Host, Uri)
@@ -157,7 +156,7 @@ handle_info(_Info, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _State) ->
-    ibrowse:stop().
+    ok.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -173,7 +172,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
 get_configuration(Host, Uri) ->
     ?DEBUG("getting configuration from ~p", [Uri]),
     case ibrowse:send_req(Uri, [], get) of
@@ -194,11 +192,19 @@ get_configuration(Host, Uri) ->
     end.
 
 register_hook(Host, {Hook, Uri}) ->
-    ejabberd_hooks:add(binary:bin_to_list(Hook), Host, create_callback(binary:bin_to_list(Uri)), 50).
+    ejabberd_hooks:add(binary_to_existing_atom(Hook, utf8), Host,
+                       create_callback(binary:bin_to_list(Uri)), 50).
 
 create_callback(Uri) ->
     ?DEBUG("creating callback for ~s", [Uri]),
-    fun(Args) ->
+    %% let's hope all callbacks are of this signature
+    fun(User, Server, Resource, Stanza) ->
             ?DEBUG("callback called for uri ~s", [Uri]),
-            ibrowse:senq_req(Uri, [Args], get)
+            {ok, Body} = json:encode({[{user, User}, {server, Server},
+                                       {resource, Resource},
+                                       {stanza, exml:to_binary(Stanza)}]}),
+            ?DEBUG("Created JSON ~p", [Body]),
+            ibrowse:send_req(Uri, [{"content-type", 
+                                    "application/x-www-form-urlencoded"}],
+                             post, "json="++Body)
     end.
