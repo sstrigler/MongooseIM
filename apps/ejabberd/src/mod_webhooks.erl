@@ -25,7 +25,10 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {host, 
+                hooks}).
+
+-record(hook, {hook, func, seq}).
 
 %%%===================================================================
 %%% API
@@ -58,10 +61,6 @@ start(Host, Opts) ->
 %% @end
 %%--------------------------------------------------------------------
 stop(Host) ->
-
-    %% [TODO]
-    %% unregister all routes
-
     Proc = gen_mod:get_module_proc(Host, ?SERVER),
     gen_server:call(Proc, stop),
     supervisor:terminate_child(ejabberd_sup, Proc),
@@ -95,10 +94,10 @@ start_link(Host, Opts) ->
 %%--------------------------------------------------------------------
 init([Host, Opts]) ->
     Endpoints = gen_mod:get_opt(endpoints, Opts, []),
-    lists:foreach(fun(Uri) ->
-                          get_configuration(Host, Uri)
-                  end, Endpoints),
-    {ok, #state{}}.
+    Hooks = lists:foldl(fun(Uri, Acc) ->
+                                Acc ++ get_configuration(Host, Uri)
+                        end, [], Endpoints),
+    {ok, #state{host=Host, hooks=Hooks}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -155,7 +154,19 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
+terminate(_Reason, State) ->
+    %% unregister all hooks
+    lists:foreach(
+            fun(Hook) ->
+                    ejabberd_hooks:delete(
+                      Hook#hook.hook,
+                      State#state.host,
+                      Hook#hook.func,
+                      Hook#hook.seq
+                     )
+            end,
+            State#state.hooks
+     ),
     ok.
 
 %%--------------------------------------------------------------------
@@ -180,20 +191,26 @@ get_configuration(Host, Uri) ->
             case json:decode(string:strip(Body, both, $\n)) of
                 {ok, {Hooks}} ->
                     ?DEBUG("got hooks ~p", [Hooks]),
-                    lists:foreach(fun(Hook) ->
-                                          ?DEBUG("got hook ~p", [Hook]),
-                                          register_hook(Host, Hook)
-                                  end, Hooks);
+                    lists:foldl(fun(Hook, Acc) ->
+                                        ?DEBUG("got hook ~p", [Hook]),
+                                        Acc ++ [register_hook(Host, Hook)]
+                                  end, [], Hooks);
                 _JSONError ->
-                    ?ERROR_MSG("failed to parse as json: ~p", [_JSONError])
+                    ?ERROR_MSG("failed to parse as json: ~p", [_JSONError]),
+                    []
             end;
         _IBrowseError ->
-            ?ERROR_MSG("Got bad result for ~s:~n~p", [Uri, _IBrowseError])
+            ?ERROR_MSG("Got bad result for ~s:~n~p", [Uri, _IBrowseError]),
+            []
     end.
 
-register_hook(Host, {Hook, Uri}) ->
-    ejabberd_hooks:add(binary_to_existing_atom(Hook, utf8), Host,
-                       create_callback(binary:bin_to_list(Uri)), 50).
+register_hook(Host, {HookBin, Uri}) ->
+    Hook = #hook{hook=binary_to_existing_atom(HookBin, utf8),
+                 func=create_callback(binary:bin_to_list(Uri)),
+                 seq=50},
+    ejabberd_hooks:add(Hook#hook.hook, Host, Hook#hook.func, Hook#hook.seq),
+    Hook.
+
 
 create_callback(Uri) ->
     ?DEBUG("creating callback for ~s", [Uri]),
