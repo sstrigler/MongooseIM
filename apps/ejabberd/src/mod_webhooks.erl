@@ -215,6 +215,15 @@ register_hook(Host, {HookBin, Uri}) ->
 create_callback(Uri) ->
     ?DEBUG("creating callback for ~s", [Uri]),
     %% let's hope all callbacks are of this signature
+
+    %% of course they are not. so we need to dynamically create the
+    %% right callback signature here. any takers?
+
+    %% it would be a lot easier here if we had some central place for
+    %% hooks, a lookup table or sth for hooks available and their
+    %% callback signatures. or maybe a unified signature in the form
+    %% of an arity of 1 at least.
+
     fun(User, Server, Resource, Stanza) ->
             ?DEBUG("callback called for uri ~s", [Uri]),
             {ok, Body} = json:encode({[{user, User}, {server, Server},
