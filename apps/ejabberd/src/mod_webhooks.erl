@@ -25,10 +25,12 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {host, 
-                hooks}).
+-record(state, {host :: binary(), 
+                hooks :: list()}).
 
--record(hook, {hook, func, seq}).
+-record(hook, {hook :: atom(),
+               func :: fun(),
+               seq :: integer()}).
 
 %%%===================================================================
 %%% API
