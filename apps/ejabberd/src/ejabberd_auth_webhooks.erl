@@ -4,11 +4,6 @@
 %%%
 %%% @end
 %%% Created :  4 Apr 2013 by Stefan Strigler <stefan.strigler@erlang-solutions.com>
-
--module(ejabberd_auth_webhooks).
-
-
-
 -module(ejabberd_auth_webhooks).
 -author('stefan@strigler.de').
 
