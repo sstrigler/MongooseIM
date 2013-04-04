@@ -206,6 +206,12 @@ get_configuration(Host, Uri) ->
             []
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Register a new hook at ejabberd.
+%% @spec register_hook(Host::binary(), {HookBin::binary(), Uri::list()} -> hook()
+%% @end
+%%--------------------------------------------------------------------
 register_hook(Host, {HookBin, Uri}) ->
     Hook = #hook{hook=binary_to_existing_atom(HookBin, utf8),
                  func=create_callback(binary:bin_to_list(Uri)),
@@ -214,6 +220,11 @@ register_hook(Host, {HookBin, Uri}) ->
     Hook.
 
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @spec
+%% @end
+%%--------------------------------------------------------------------
 create_callback(Uri) ->
     ?DEBUG("creating callback for ~s", [Uri]),
     %% let's hope all callbacks are of this signature
