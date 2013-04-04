@@ -1,0 +1,3 @@
+:name "ejabberd"
+:node-sname "ejabberd"
+:lib-dirs '("apps" "deps")
