@@ -15,7 +15,7 @@
 %% cowboy_http_handler callbacks
 -export([init/3,
          handle/2,
-         terminate/2]).
+         terminate/3]).
 
 %% cowboy_http_websocket_handler callbacks
 -export([websocket_init/3,
@@ -53,15 +53,20 @@
 
 start(_Host, Opts) ->
     WSHost = gen_mod:get_opt(host, Opts, '_'), %% default to any
-    WSPrefix = gen_mod:get_opt(prefix, Opts, <<"ws-xmpp">>),
-    DispatchRules = [{[WSPrefix], ?MODULE, Opts}],
-    FullDispatch = [{WSHost, DispatchRules}],
+    WSPrefix = gen_mod:get_opt(prefix, Opts, "/ws-xmpp"),
     NumAcceptors = gen_mod:get_opt(num_acceptors, Opts, 100),
     Port = gen_mod:get_opt(port, Opts, ?DEFAULT_PORT),
-    TransportOpts = [{port, Port}],
-    ProtocolOpts = [{dispatch, FullDispatch}],
-    cowboy:start_http(?LISTENER, NumAcceptors,
-                      TransportOpts, ProtocolOpts).
+    Dispatch = cowboy_router:compile([{WSHost, [{WSPrefix, ?MODULE, Opts}] }]),
+    case cowboy:start_http(?LISTENER, NumAcceptors,
+                                [{port, Port}],
+                                [{env, [{dispatch, Dispatch}]}]) of
+        {error, {already_started, _Pid}} ->
+            ok;
+        {ok, _Pid} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 stop(_Host) ->
     cowboy:stop_listener(?LISTENER).
@@ -77,7 +82,7 @@ init(Transport, Req, Opts) ->
 handle(Req, State) ->
         {ok, Req, State}.
 
-terminate(_Req, _State) ->
+terminate(_Reason, _Req, _State) ->
         ok.
 
 %%--------------------------------------------------------------------

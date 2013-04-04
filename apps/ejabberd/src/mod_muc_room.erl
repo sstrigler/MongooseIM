@@ -906,10 +906,11 @@ handle_iq_vcard2(_FromFull, ToJID, _ToBareJID, _StanzaId, NewId, _IQ, Packet) ->
     {ToJID, change_stanzaid(NewId, Packet)}.
 
 stanzaid_pack(OriginalId, Resource) ->
-    <<"berd">>++base64:encode_to_string(<<"ejab\0">> ++ OriginalId ++ <<"\0">> ++ Resource).
+    Data64 = base64:encode(<<"ejab\0", OriginalId/binary, 0, Resource/binary>>),
+    <<"berd", Data64/binary>>.
 stanzaid_unpack(<<"berd", StanzaIdBase64/binary>>) ->
-    StanzaId = base64:decode_to_string(StanzaIdBase64),
-    [<<"ejab">>, OriginalId, Resource] = string:tokens(StanzaId, <<"\0">>),
+    StanzaId = base64:decode(StanzaIdBase64),
+    [<<"ejab">>, OriginalId, Resource] = binary:split(StanzaId, <<"\0">>),
     {OriginalId, Resource}.
 
 change_stanzaid(NewId, Packet) ->
@@ -1612,7 +1613,7 @@ count_maxstanzas_shift(MaxStanzas, HistoryList) ->
     end.
 
 count_maxchars_shift(Nick, MaxSize, HistoryList) ->
-    NLen = string:len(Nick) + 1,
+    NLen = string:len(binary_to_list(Nick)) + 1,
     Sizes = lists:map(
           fun({_Nick, _Packet, _HaveSubject, _TimeStamp, Size}) ->
           Size + NLen
@@ -1649,7 +1650,7 @@ extract_history([{xmlelement, _Name, Attrs, _SubEls} = El | Els], Type) ->
                 calendar:now_to_universal_time(TS)
             end;
         _ ->
-            case catch list_to_integer(AttrVal) of
+            case catch binary_to_integer(AttrVal) of
             IntVal when is_integer(IntVal) and (IntVal >= 0) ->
                 IntVal;
             _ ->
@@ -2712,7 +2713,7 @@ is_allowed_room_name_desc_limits(XEl, StateData) ->
     case lists:keysearch(<<"muc#roomconfig_roomname">>, 1,
                  jlib:parse_xdata_submit(XEl)) of
         {value, {_, [N]}} ->
-        length(N) =< gen_mod:get_module_opt(StateData#state.server_host,
+        byte_size(N) =< gen_mod:get_module_opt(StateData#state.server_host,
                             mod_muc, max_room_name,
                             infinite);
         _ ->
@@ -2722,7 +2723,7 @@ is_allowed_room_name_desc_limits(XEl, StateData) ->
     case lists:keysearch(<<"muc#roomconfig_roomdesc">>, 1,
                  jlib:parse_xdata_submit(XEl)) of
         {value, {_, [D]}} ->
-        length(D) =< gen_mod:get_module_opt(StateData#state.server_host,
+        byte_size(D) =< gen_mod:get_module_opt(StateData#state.server_host,
                             mod_muc, max_room_desc,
                             infinite);
         _ ->
@@ -2951,7 +2952,7 @@ set_config(XEl, StateData) ->
     end).
 
 -define(SET_NAT_XOPT(Opt, Val),
-    case catch list_to_integer(Val) of
+    case catch binary_to_integer(Val) of
         I when is_integer(I),
                I > 0 ->
         set_xoption(Opts, Config#config{Opt = I});
