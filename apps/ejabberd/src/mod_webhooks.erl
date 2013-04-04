@@ -25,7 +25,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {host :: binary(), 
+-record(state, {host :: binary(),
                 hooks :: list()}).
 
 -record(hook, {hook :: atom(),
@@ -96,6 +96,10 @@ start_link(Host, Opts) ->
 %%--------------------------------------------------------------------
 init([Host, Opts]) ->
     Endpoints = gen_mod:get_opt(endpoints, Opts, []),
+
+    %% [TODO] later on this should go into some asyncronous concurrent loop
+    %% (spawn a process per Uri)
+
     Hooks = lists:foldl(fun(Uri, Acc) ->
                                 Acc ++ get_configuration(Host, Uri)
                         end, [], Endpoints),
@@ -159,15 +163,15 @@ handle_info(_Info, State) ->
 terminate(_Reason, State) ->
     %% unregister all hooks
     lists:foreach(
-            fun(Hook) ->
-                    ejabberd_hooks:delete(
-                      Hook#hook.hook,
-                      State#state.host,
-                      Hook#hook.func,
-                      Hook#hook.seq
-                     )
-            end,
-            State#state.hooks
+      fun(Hook) ->
+              ejabberd_hooks:delete(
+                Hook#hook.hook,
+                State#state.host,
+                Hook#hook.func,
+                Hook#hook.seq
+               )
+      end,
+      State#state.hooks
      ),
     ok.
 
@@ -196,7 +200,7 @@ get_configuration(Host, Uri) ->
                     lists:foldl(fun(Hook, Acc) ->
                                         ?DEBUG("got hook ~p", [Hook]),
                                         Acc ++ [register_hook(Host, Hook)]
-                                  end, [], Hooks);
+                                end, [], Hooks);
                 _JSONError ->
                     ?ERROR_MSG("failed to parse as json: ~p", [_JSONError]),
                     []
@@ -209,9 +213,9 @@ get_configuration(Host, Uri) ->
 %%--------------------------------------------------------------------
 %% @doc
 %% Register a new hook at ejabberd.
-%% @spec register_hook(Host::binary(), {HookBin::binary(), Uri::list()} -> hook()
 %% @end
 %%--------------------------------------------------------------------
+-spec register_hook(Host::binary(), {HookBin::binary(), Uri::list()} -> hook()
 register_hook(Host, {HookBin, Uri}) ->
     Hook = #hook{hook=binary_to_existing_atom(HookBin, utf8),
                  func=create_callback(binary:bin_to_list(Uri)),
@@ -243,7 +247,12 @@ create_callback(Uri) ->
                                        {resource, Resource},
                                        {stanza, exml:to_binary(Stanza)}]}),
             ?DEBUG("Created JSON ~p", [Body]),
-            ibrowse:send_req(Uri, [{"content-type", 
+            ibrowse:send_req(Uri, [{"content-type",
                                     "application/x-www-form-urlencoded"}],
                              post, "json="++Body)
     end.
+
+%% TODO
+%% * do auth this way
+%% * do sth with a roster
+%% * log messages
