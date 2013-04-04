@@ -215,10 +215,12 @@ get_configuration(Host, Uri) ->
 %% Register a new hook at ejabberd.
 %% @end
 %%--------------------------------------------------------------------
--spec register_hook(Host::binary(), {HookBin::binary(), Uri::list()} -> hook()
+-spec register_hook(Host::binary(), {HookBin::binary(), Uri::list()}) ->
+                           #hook{}.
 register_hook(Host, {HookBin, Uri}) ->
-    Hook = #hook{hook=binary_to_existing_atom(HookBin, utf8),
-                 func=create_callback(binary:bin_to_list(Uri)),
+    HookName = binary_to_existing_atom(HookBin, utf8),
+    Hook = #hook{hook=HookName,
+                 func=create_callback(HookName, binary:bin_to_list(Uri)),
                  seq=50},
     ejabberd_hooks:add(Hook#hook.hook, Host, Hook#hook.func, Hook#hook.seq),
     Hook.
@@ -229,7 +231,17 @@ register_hook(Host, {HookBin, Uri}) ->
 %% @spec
 %% @end
 %%--------------------------------------------------------------------
-create_callback(Uri) ->
+create_callback(check_password, Uri) ->
+    fun(User, Server, Password) ->
+            ?DEBUG("callback called for uri ~s", [Uri]),
+            {ok, Payload} = json:encode({[{user, User}, {server, Server},
+                                          {password, exml:to_binary(Password)}]}),
+            ?DEBUG("Created JSON ~p", [Payload]),
+            ibrowse:send_req(Uri, [{"content-type",
+                                    "application/x-www-form-urlencoded"}],
+                             post, "json="++Payload)
+    end.
+create_callback(_HookName, Uri) ->
     ?DEBUG("creating callback for ~s", [Uri]),
     %% let's hope all callbacks are of this signature
 
@@ -243,16 +255,16 @@ create_callback(Uri) ->
 
     fun(User, Server, Resource, Stanza) ->
             ?DEBUG("callback called for uri ~s", [Uri]),
-            {ok, Body} = json:encode({[{user, User}, {server, Server},
+            {ok, Payload} = json:encode({[{user, User}, {server, Server},
                                        {resource, Resource},
                                        {stanza, exml:to_binary(Stanza)}]}),
-            ?DEBUG("Created JSON ~p", [Body]),
+            ?DEBUG("Created JSON ~p", [Payload]),
             ibrowse:send_req(Uri, [{"content-type",
                                     "application/x-www-form-urlencoded"}],
-                             post, "json="++Body)
+                             post, "json="++Payload)
     end.
 
-%% TODO
+%% Todo
 %% * do auth this way
 %% * do sth with a roster
 %% * log messages
