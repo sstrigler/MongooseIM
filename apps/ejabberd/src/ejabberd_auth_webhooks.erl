@@ -24,7 +24,6 @@
         ]).
 
 -include("ejabberd.hrl").
--include("mod_cce.hrl").
 
 %%%----------------------------------------------------------------------
 %%% API
@@ -40,12 +39,14 @@ check_password(User, Server, Password) ->
     LServer = jlib:nameprep(Server),
     ejabberd_hooks:run_fold(
       check_password, LServer,
-      {LUser, LServer, Password}).
+      [{user, LUser},
+       {server, LServer},
+       {password, Password}]).
 
 check_password(User, Server, Password, _StreamID, _Digest) ->
     check_password(User, Server, Password).
 
-set_password(User, Server, Password) ->
+set_password(_User, _Server, _Password) ->
     false.
 
 try_register(_User, _Server, _Password) ->

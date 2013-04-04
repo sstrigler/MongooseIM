@@ -232,15 +232,19 @@ register_hook(Host, {HookBin, Uri}) ->
 %% @end
 %%--------------------------------------------------------------------
 create_callback(check_password, Uri) ->
-    fun(User, Server, Password) ->
+    fun(_Acc, Credentials) ->
             ?DEBUG("callback called for uri ~s", [Uri]),
-            {ok, Payload} = json:encode({[{user, User}, {server, Server},
-                                          {password, exml:to_binary(Password)}]}),
+            {ok, Payload} = json:encode({[Credentials]}),
             ?DEBUG("Created JSON ~p", [Payload]),
-            ibrowse:send_req(Uri, [{"content-type",
-                                    "application/x-www-form-urlencoded"}],
-                             post, "json="++Payload)
-    end.
+            case ibrowse:send_req(Uri, [{"content-type",
+                                         "application/x-www-form-urlencoded"}],
+                                  post, "json="++Payload) of
+                {ok, "200", _Headers, "true"} ->
+                    true;
+                _ ->
+                    false
+            end
+    end;
 create_callback(_HookName, Uri) ->
     ?DEBUG("creating callback for ~s", [Uri]),
     %% let's hope all callbacks are of this signature
