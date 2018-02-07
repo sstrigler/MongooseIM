@@ -40,6 +40,8 @@
          remove_attr/2,
          iq_query_info/1,
          iq_query_or_response_info/1,
+         iq_to_error/2,
+         iq_to_error/3,
          iq_to_xml/1,
          parse_xdata_submit/1,
          parse_xdata_fields/1,
@@ -341,6 +343,47 @@ iq_type_to_binary(get) -> <<"get">>;
 iq_type_to_binary(result) -> <<"result">>;
 iq_type_to_binary(error) -> <<"error">>;
 iq_type_to_binary(_) -> invalid.
+
+-spec iq_to_error(ejabberd:iq(), atom()|integer()) -> ejabberd:iq().
+iq_to_error(IQ, Code) -> iq_to_error(IQ, Code, undefined).
+
+-spec iq_to_error(ejabberd:iq(), atom()|integer(), binary()|undefined) -> ejabberd:iq().
+iq_to_error(IQ, ReasonOrCode, Description) ->
+    IQ#iq{type = error, sub_el = [error_el(maybe_code_to_reason(ReasonOrCode), Description)]}.
+
+error_el(bad_request, undefined)              -> ?ERR_BAD_REQUEST;
+error_el(forbidden, undefined)                -> ?ERR_FORBIDDEN;
+error_el(internal_server_error, undefined)    -> ?ERR_INTERNAL_SERVER_ERROR;
+error_el(service_unavailable, undefined)      -> ?ERR_SERVICE_UNAVAILABLE;
+error_el(item_not_found, undefined)           -> ?ERR_ITEM_NOT_FOUND;
+error_el(not_acceptable, undefined)           -> ?ERR_NOT_ACCEPTABLE;
+error_el(feature_not_implemented, undefined)  -> ?ERR_FEATURE_NOT_IMPLEMENTED;
+error_el(remote_server_timeout, undefined)    -> ?ERR_REMOTE_SERVER_TIMEOUT;
+error_el(not_allowed, undefined)              -> ?ERR_NOT_ALLOWED;
+error_el(_, undefined)                        -> ?ERR_BAD_REQUEST;
+error_el(bad_request, Desc)                   -> ?ERRT_BAD_REQUEST(<<"en">>, Desc);
+error_el(forbidden, Desc)                     -> ?ERRT_FORBIDDEN(<<"en">>, Desc);
+error_el(internal_server_error, Desc)         -> ?ERRT_INTERNAL_SERVER_ERROR(<<"en">>, Desc);
+error_el(service_unavailable, Desc)           -> ?ERRT_SERVICE_UNAVAILABLE(<<"en">>, Desc);
+error_el(item_not_found, Desc)                -> ?ERRT_ITEM_NOT_FOUND(<<"en">>, Desc);
+error_el(not_acceptable, Desc)                -> ?ERRT_NOT_ACCEPTABLE(<<"en">>, Desc);
+error_el(feature_not_implemented, Desc)       -> ?ERRT_FEATURE_NOT_IMPLEMENTED(<<"en">>, Desc);
+error_el(remote_server_timeout, Desc)         -> ?ERRT_REMOTE_SERVER_TIMEOUT(<<"en">>, Desc);
+error_el(not_allowed, Desc)                   -> ?ERRT_NOT_ALLOWED(<<"en">>, Desc);
+error_el(_, Desc)                             -> ?ERRT_BAD_REQUEST(<<"en">>, Desc).
+
+maybe_code_to_reason(Reason) when is_atom(Reason) -> Reason;
+maybe_code_to_reason(400) -> bad_request;
+maybe_code_to_reason(403) -> forbidden;
+maybe_code_to_reason(404) -> item_not_found;
+maybe_code_to_reason(405) -> not_allowed;
+maybe_code_to_reason(406) -> not_acceptable;
+maybe_code_to_reason(500) -> internal_server_error;
+maybe_code_to_reason(501) -> feature_not_implemented;
+maybe_code_to_reason(503) -> service_unavailable;
+maybe_code_to_reason(504) -> remote_server_timeout;
+maybe_code_to_reason(_)   -> bad_request.
+
 
 -spec iq_to_xml(ejabberd:iq()) -> xmlel().
 iq_to_xml(#iq{id = ID, type = Type, sub_el = SubEl}) when ID /= "" ->
