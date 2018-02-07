@@ -796,11 +796,13 @@ return_max_delay_reached_error_iq(IQ) ->
 return_error_iq(IQ, {Reason, {stacktrace, _Stacktrace}}) ->
     return_error_iq(IQ, Reason);
 return_error_iq(IQ, timeout) ->
-    {error, timeout, IQ#iq{type = error, sub_el = [?ERR_SERVICE_UNAVAILABLE]}};
-return_error_iq(IQ, not_implemented) ->
-    {error, not_implemented, IQ#iq{type = error, sub_el = [?ERR_FEATURE_NOT_IMPLEMENTED]}};
+    {error, timeout, jlib:iq_to_error(IQ, remote_server_timeout, undefined)};
+return_error_iq(IQ, {Reason, Description}) ->
+    {error, Reason, jlib:iq_to_error(IQ, Reason, Description)};
 return_error_iq(IQ, Reason) ->
-    {error, Reason, IQ#iq{type = error, sub_el = [?ERR_INTERNAL_SERVER_ERROR]}}.
+    {error, Reason, jlib:iq_to_error(IQ, Reason, undefined)}.
+
+
 
 return_message_form_iq(Host, IQ) ->
     IQ#iq{type = result, sub_el = [message_form(?MODULE, Host, IQ#iq.xmlns)]}.
