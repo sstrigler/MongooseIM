@@ -204,16 +204,31 @@ encode_compact_uuid(Microseconds, NodeId)
 
 %% @doc Extract date and node id from a message id.
 -spec decode_compact_uuid(integer()) -> {integer(), byte()}.
-decode_compact_uuid(Id) ->
+decode_compact_uuid(Id) when is_integer(Id) ->
     Microseconds = Id bsr 8,
     NodeId = Id band 255,
-    {Microseconds, NodeId}.
+    {Microseconds, NodeId};
+decode_compact_uuid(UUID) when is_binary(UUID) ->
+    %% See https://www.famkruithof.net/guid-uuid-timebased.html
+
+    %% extract timestamp from UUID
+    <<TimeLow:32, TimeMid:16, 1:4, TimeHi:12, _ClockID:16, NodeId:48>> = uuid:string_to_uuid(
+                                                                           binary_to_list(UUID)),
+
+    UUIDTimestamp = binary:decode_unsigned(<<TimeHi:16, TimeMid:16, TimeLow:32>>),
+
+    %% uuid offset and nanosecends step
+    UnixTimestamp = (UUIDTimestamp - 122192928000000000) div 10,
+
+    {UnixTimestamp , NodeId band 255}.
 
 
 %% @doc Encode a message ID to pass it to the user.
 -spec mess_id_to_external_binary(integer()) -> binary().
 mess_id_to_external_binary(MessID) when is_integer(MessID) ->
-    list_to_binary(integer_to_list(MessID, 32)).
+    list_to_binary(integer_to_list(MessID, 32));
+mess_id_to_external_binary(MessID) -> MessID.
+
 
 
 -spec maybe_external_binary_to_mess_id(binary()) -> undefined | integer().
