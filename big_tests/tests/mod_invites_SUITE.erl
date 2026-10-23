@@ -51,7 +51,10 @@ groups() ->
        adhoc_command_invite,
        adhoc_command_create_account,
        max_invites,
-       ibr_roster_invite
+       ibr_roster_invite,
+       http,
+       invites_page,
+       reset_token
       ]
      },
      {create_account_not_allowed, [parallel],
@@ -63,7 +66,8 @@ groups() ->
        preauthenticated_roster_subscription,
        stream_feature,
        ibr,
-       ibr_conflict
+       ibr_conflict,
+       invites_page_not_allowed
       ]
      }].
 
@@ -418,6 +422,228 @@ ibr_conflict(Config) ->
     ?match(false, is_token_valid(Server, Token)),
     unregister_user(escalus_client:username(Alice), Server),
     delete_tokens(Server, [Token]).
+
+%%--------------------------------------------------------------------
+%% Landing pages tests
+%%--------------------------------------------------------------------
+
+http(_Config) ->
+    httpc:set_options([{cookies, enabled}]),
+    Domain = domain_helper:domain(),
+    #{<<"landing_page">> := LandingPage,
+     <<"token_uri">> := TokenURI} = format_invite(Domain, create_account_invite(Domain)),
+    Token = token_from_uri(TokenURI),
+    {ok, {{_, 200, _}, Headers, Body}} = httpc:request(LandingPage),
+    {match, [TokenURI]} =
+        re:run(
+            proplists:get_value("link", Headers), "<(.+)>", [{capture, [1], binary}]),
+    {match, RegistrationURLs} =
+        re:run(Body,
+               <<"href=\"", Token/binary, "([a-zA-Z0-9\/\-]+)\"">>,
+               [global, {capture, [1], binary}]),
+    Apps =
+        rpc(mim(), mod_invites_http, apps_json,
+            [<<"en">>, [{static, <<"/static">>}, {uri, <<>>}, {host_type, domain_helper:host_type()}]]),
+    ?match(true, length(RegistrationURLs) == length(Apps) + 1),
+    BaseURL = LandingPage,
+    lists:foreach(fun([URL]) ->
+                     FullURL = <<BaseURL/binary, "/", URL/binary>>,
+                     ct:pal("Checking url ~p", [FullURL]),
+                     ?match({ok, {{_, 200, _}, _, _}}, httpc:request(FullURL))
+                  end,
+                  RegistrationURLs),
+
+    {ok, {{_, 404, _}, _, _}} = httpc:request(<<BaseURL/binary, "/UnkonwnApp">>),
+    {ok, {{_, 404, _}, _, _}} = httpc:request(<<BaseURL/binary, "/UnkonwnApp/registration">>),
+    {ok, {{_, 404, _}, _, _}} = httpc:request(<<BaseURL/binary, "/Dino/unknownpath">>),
+
+    [Last] = lists:last(RegistrationURLs),
+    RegURL = <<BaseURL/binary, Last/binary>>,
+    CSRFToken = get_csrf_token(RegURL),
+
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, <<"badtoken">>, CSRFToken, <<"foo">>, <<"bar">>),
+    %% ???
+    %%{ok, {{_, 400, _}, _, _}} = post(RegURL, Token, CSRFToken, <<"@invalidUser">>, <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, <<"foo">>, <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} =
+        post(RegURL,
+             Token,
+             <<"guLRkZZFv+CGI7UbCnyija0KwPFmob71RGvGa7dQ5G4=">>,
+             <<"foo">>,
+             <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, <<"nohashtoken">>, <<"foo">>, <<"bar">>),
+    {ok, {{_, 200, _}, _, _}} = post(RegURL, Token, CSRFToken, <<"foo">>, <<"bar">>),
+    {ok, {{_, 404, _}, _, _}} = post(RegURL, Token, CSRFToken, <<"foo">>, <<"bar">>),
+    {ok, {{_, 404, _}, _, _}} = httpc:request(LandingPage),
+    lists:foreach(fun([URL]) ->
+                     FullURL = <<BaseURL/binary, "/", URL/binary>>,
+                     ct:pal("Checking url ~p", [FullURL]),
+                     ?match({ok, {{_, 404, _}, _, _}}, httpc:request(FullURL))
+                  end,
+                  RegistrationURLs),
+
+    #{<<"landing_page">> := RosterInviteURL,
+     <<"token_uri">> := RosterInviteURI} = format_invite(Domain, create_roster_invite({<<"inviter">>, Domain})),
+    RosterInviteToken = token_from_uri(RosterInviteURI),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(RosterInviteURL),
+    FakeRegURL = <<RosterInviteURL/binary, "/registration">>,
+    {ok, {{_, 404, _}, _, _}} =
+        post(FakeRegURL, RosterInviteToken, CSRFToken, <<"baz">>, <<"bar">>),
+
+    unregister_user(<<"foo">>, Domain),
+    delete_tokens(Domain, [Token, RosterInviteToken]),
+    ok.
+
+% elp:ignore W0008 (unreachable_test)
+get_csrf_token(URL) ->
+    {ok, {{_, 200, _}, _, Body}} = httpc:request(URL),
+    {match, [[CSRFToken]]} =
+        re:run(Body,
+               <<"<input.+name=\"csrf_token\" value=\"(.+)\"">>,
+               [global, {capture, [1], binary}]),
+    ct:pal("extracted csrf token: ~p", [CSRFToken]),
+    CSRFToken.
+
+post(URL, Token, User, Password) ->
+    Data = to_qs([{token, Token}, {user, User}, {password, Password}]),
+    post(URL, [], Data).
+
+post(URL, Token, CSRFToken, User, Password) ->
+    Data =
+        to_qs([{token, Token}, {user, User}, {password, Password}, {csrf_token, CSRFToken}]),
+    post(URL, [], Data).
+
+post(URL, Headers, Data) ->
+    httpc:request(post, {URL, Headers, "application/x-www-form-urlencoded", Data}, [], []).
+
+% elp:ignore W0008 (unreachable_test)
+to_qs(List) ->
+    lists:foldl(fun ({K, V}, <<>>) ->
+                        <<(atom_to_binary(K))/binary, "=", (uri_string:quote(V))/binary>>;
+                    ({K, V}, QS) ->
+                        <<QS/binary,
+                          "&",
+                          (atom_to_binary(K))/binary,
+                          "=",
+                          (uri_string:quote(V))/binary>>
+                end,
+                <<>>,
+                List).
+
+%%--------------------------------------------------------------------
+%% Create Invites Page
+%%--------------------------------------------------------------------
+
+invites_page(Config) ->
+    [{_AliceName, AliceSpec}] = escalus_users:get_users([alice]),
+    [User, Server, Password] = escalus_users:get_usp(Config, AliceSpec),
+    rpc(mim(), ejabberd_auth, try_register, [mongoose_helper:make_jid(User, Server), Password]),
+
+    BaseURL = <<"http://", Server/binary, ":5280/invites">>,
+
+    httpc:set_options([{cookies, enabled}]),
+
+    CSRFToken = get_csrf_token(BaseURL),
+    ?match({ok, {{_, 200, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User}, {password, Password}, {csrf_token, CSRFToken}]))),
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User}, {password, <<"bad_password">>}, {csrf_token, CSRFToken}]))),
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User},
+                       {password, Password},
+                       {csrf_token, CSRFToken},
+                       {account_name, User}]))),
+    ?match({ok, {{_, 200, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User},
+                       {password, Password},
+                       {csrf_token, CSRFToken},
+                       {account_name, <<"some_free_account_name">>}]))),
+    %% now it's reserved
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User},
+                       {password, Password},
+                       {csrf_token, CSRFToken},
+                       {account_name, <<"some_free_account_name">>}]))),
+
+    unregister_user(User, Server),
+    ok.
+
+invites_page_not_allowed(Config) ->
+    [{_AliceName, AliceSpec}] = escalus_users:get_users([alice]),
+    [User, Server, Password] = escalus_users:get_usp(Config, AliceSpec),
+    rpc(mim(), ejabberd_auth, try_register, [mongoose_helper:make_jid(User, Server), Password]),
+
+    BaseURL = <<"http://", Server/binary, ":5280/invites">>,
+
+    httpc:set_options([{cookies, enabled}]),
+
+    CSRFToken = get_csrf_token(BaseURL),
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL, [], to_qs([{user, User}, {password, Password}, {csrf_token, CSRFToken}]))),
+    unregister_user(User, Server),
+    ok.
+
+%%--------------------------------------------------------------------
+%% PW Reset Token
+%%--------------------------------------------------------------------
+
+reset_token(Config) ->
+    AliceSpec = escalus_fresh:freshen_spec(Config, alice),
+    [User, Server, Password] = escalus_users:get_usp(Config, AliceSpec),
+    rpc(mim(), ejabberd_auth, try_register, [mongoose_helper:make_jid(User, Server), Password]),
+
+    #{<<"landing_page">> := BaseURL,
+      <<"token_uri">> := TokenURI} = format_invite(Server, create_reset_token(Server, User)),
+    Token = token_from_uri(TokenURI),
+
+    httpc:set_options([{cookies, enabled}]),
+    CSRFToken = get_csrf_token(BaseURL),
+
+    ?match(true, check_password(User, Server, Password)),
+
+    Alice = escalus_connection:connect(AliceSpec),
+    escalus_client:send(Alice, stream_start(Alice)),
+    [_StreamStartAnswer, #xmlel{children = _StreamFeatures}] = escalus_client:wait_for_stanzas(Alice, 2, 500),
+
+    escalus:assert(is_iq_error, send_iq_register(Alice, User, <<"newPassword">>)),
+    escalus:assert(is_iq_result, send_pars(Alice, Token)),
+    escalus:assert(is_iq_error, send_iq_register(Alice, <<"wrong_user">>, <<"newPassword">>)),
+    escalus:assert(is_iq_result, send_iq_register(Alice, User, <<"newPassword">>)),
+
+    ?match(true, check_password(User, Server, <<"newPassword">>)),
+    ?match(false, check_password(User, Server, Password)),
+
+    ?match(false, is_token_valid(Server, Token)),
+
+    {ok, {{_, 404, _}, _, _}} = post(BaseURL, Token, CSRFToken, User, <<"anotherPassword">>),
+
+    #{<<"landing_page">> := BaseURL2,
+      <<"token_uri">> := TokenURI2} = format_invite(Server, create_reset_token(Server, User)),
+    Token2 = token_from_uri(TokenURI2),
+
+    CSRFToken2 = get_csrf_token(BaseURL2),
+
+    {ok, {{_, 400, _}, _, _}} =
+        post(BaseURL2, Token2, CSRFToken, User, <<"anotherPassword">>),
+    {ok, {{_, 400, _}, _, _}} =
+        post(BaseURL2, Token2, CSRFToken2, <<"wronguser">>, <<"anotherPassword">>),
+    {ok, {{_, 200, _}, _, _}} =
+        post(BaseURL2, Token2, CSRFToken2, User, <<"anotherPassword">>),
+    ?match(true, check_password(User, Server, <<"anotherPassword">>)),
+
+    unregister_user(User, Server),
+    delete_tokens(Server, [Token, Token2]),
+    ok.
 
 %%--------------------------------------------------------------------
 %% helpers
