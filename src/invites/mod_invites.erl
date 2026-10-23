@@ -55,6 +55,7 @@
 
 %% helpers
 -export([create_account_allowed/2,
+         create_account_invite/4,
          format_invite/2,
          get_invite/3,
          get_invites_tree_t/2,
@@ -65,11 +66,13 @@
          pretty_format_command_result/1,
          roster_add/4,
          set_invitee/6,
+         token_uri/2,
          transaction/2]).
 
 %% exported for testing
 -export([create_reset_token/3,
          create_roster_invite/2,
+         get_invites/2,
          get_max_invites/2,
          set_invitee/4
         ]).
@@ -82,6 +85,7 @@
 
 -ignore_xref([create_reset_token/3,
               create_roster_invite/2,
+              get_invites/2,
               get_max_invites/2,
               set_invitee/4
              ]).
@@ -530,6 +534,9 @@ user_send_xmlel(Acc, Params, Extras) ->
 get_invite(HostType, Host, Token) ->
     db_call(HostType, get_invite, [Host, Token]).
 
+get_invites(HostType, Inviter) ->
+    transaction(HostType, fun() -> get_invites_t(HostType, Inviter) end).
+
 get_invites_t(HostType, {_User, Host} = Inviter) ->
     db_call(HostType, get_invites_t, [Host, Inviter]).
 
@@ -840,8 +847,8 @@ maybe_add_ibr_allowed(HostType, Jid) ->
             <<>>
     end.
 
-landing_page(_HostType, _Host, _Invite) ->
-    <<>>.
+landing_page(HostType, Host, Invite) ->
+    mod_invites_http:landing_page(HostType, Host, Invite).
 
 -spec db_call(binary(), atom(), [any()]) -> any().
 db_call(HostType, Fun, Args) ->
